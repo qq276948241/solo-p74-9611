@@ -1,4 +1,5 @@
 const { getDb } = require('../config/database');
+const { buildWhereClause, appendOrderAndLimit } = require('../utils/sql');
 
 function create(user) {
   const db = getDb();
@@ -22,22 +23,16 @@ function findByPhone(phone) {
 
 function update(id, data) {
   const db = getDb();
-  const fields = [];
-  const values = { id };
-
   const allowedFields = ['nickname', 'role', 'latitude', 'longitude', 'address', 'avatar_url'];
-  for (const field of allowedFields) {
-    if (data[field] !== undefined) {
-      fields.push(`${field} = @${field}`);
-      values[field] = data[field];
-    }
+  const fields = {};
+  for (const f of allowedFields) {
+    if (data[f] !== undefined) fields[f] = data[f];
   }
-
-  if (fields.length === 0) return findById(id);
-
-  fields.push('updated_at = CURRENT_TIMESTAMP');
-  const sql = `UPDATE users SET ${fields.join(', ')} WHERE id = @id`;
-  db.prepare(sql).run(values);
+  if (Object.keys(fields).length === 0) return findById(id);
+  const values = Object.values(fields);
+  const setClauses = Object.keys(fields).map(f => `${f} = ?`);
+  values.push(id);
+  db.prepare(`UPDATE users SET ${setClauses.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(...values);
   return findById(id);
 }
 

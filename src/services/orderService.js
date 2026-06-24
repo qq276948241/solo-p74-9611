@@ -3,6 +3,7 @@ const fosterHomeRepo = require('../repositories/fosterHomeRepo');
 const petRepo = require('../repositories/petRepo');
 const scheduleRepo = require('../repositories/scheduleRepo');
 const { getDb } = require('../config/database');
+const { assertExists, assertOwner, assertIn, AppError, assert } = require('../utils/validator');
 
 function generateOrderNo() {
   const now = new Date();
@@ -17,42 +18,20 @@ function generateOrderNo() {
 }
 
 function createOrder(ownerId, data) {
-  const pet = petRepo.findById(data.pet_id);
-  if (!pet) {
-    const err = new Error('宠物不存在');
-    err.status = 404;
-    throw err;
-  }
-  if (pet.owner_id !== ownerId) {
-    const err = new Error('只能为自己的宠物下单');
-    err.status = 403;
-    throw err;
-  }
+  const pet = assertExists(petRepo.findById(data.pet_id), '宠物');
+  assertOwner(pet.owner_id, ownerId, '只能为自己的宠物下单');
 
-  const home = fosterHomeRepo.findById(data.foster_home_id);
-  if (!home) {
-    const err = new Error('寄养家庭不存在');
-    err.status = 404;
-    throw err;
-  }
+  const home = assertExists(fosterHomeRepo.findById(data.foster_home_id), '寄养家庭');
 
   const schedules = scheduleRepo.findByHomeIdAndDateRange(
     data.foster_home_id, data.start_date, data.end_date
   );
 
   const unavailableDays = schedules.filter(s => !s.is_available);
-  if (unavailableDays.length > 0) {
-    const err = new Error(`所选日期中有${unavailableDays.length}天不可预约`);
-    err.status = 400;
-    throw err;
-  }
+  assert(unavailableDays.length === 0, `所选日期中有${unavailableDays.length}天不可预约`, 400);
 
   const missingDays = countDays(data.start_date, data.end_date) - schedules.length;
-  if (missingDays > 0) {
-    const err = new Error(`所选日期中有${missingDays}天未设置档期`);
-    err.status = 400;
-    throw err;
-  }
+  assert(missingDays === 0, `所选日期中有${missingDays}天未设置档期`, 400);
 
   let dailyPrice = home.daily_price;
   const priceOverrides = schedules.filter(s => s.daily_price !== null);
@@ -65,7 +44,7 @@ function createOrder(ownerId, data) {
   const totalDays = countDays(data.start_date, data.end_date);
   const totalPrice = Math.round(dailyPrice * totalDays * 100) / 100;
 
-  const order = orderRepo.create({
+  return orderRepo.create({
     order_no: generateOrderNo(),
     owner_id: ownerId,
     foster_home_id: data.foster_home_id,
@@ -78,18 +57,10 @@ function createOrder(ownerId, data) {
     owner_note: data.owner_note || '',
     foster_note: ''
   });
-
-  return order;
 }
 
 function getOrderById(id) {
-  const order = orderRepo.findById(id);
-  if (!order) {
-    const err = new Error('订单不存在');
-    err.status = 404;
-    throw err;
-  }
-  return order;
+  return assertExists(orderRepo.findById(id), '订单');
 }
 
 function listMyOrders(ownerId, status, page, pageSize) {
@@ -97,40 +68,22 @@ function listMyOrders(ownerId, status, page, pageSize) {
 }
 
 function listReceivedOrders(userId, status, page, pageSize) {
-  const home = fosterHomeRepo.findByUserId(userId);
+  const home = assertExists(fosterHomeRepo.findByUserId(userId), '您还未创建寄养家庭');
   if (!home) {
-    const err = new Error('您还未创建寄养家庭');
-    err.status = 400;
-    throw err;
+    throw AppError('您还未创建寄养家庭', 400);
   }
   return orderRepo.findByFosterHomeId(home.id, status, page, pageSize);
 }
 
 function confirmOrder(userId, orderId) {
-  const order = orderRepo.findById(orderId);
-  if (!order) {
-    const err = new Error('订单不存在');
-    err.status = 404;
-    throw err;
-  }
-
+  const order = assertExists(orderRepo.findById(orderId), '订单');
   const home = fosterHomeRepo.findById(order.foster_home_id);
-  if (!home || home.user_id !== userId) {
-    const err = new Error('无权操作此订单');
-    err.status = 403;
-    throw err;
-  }
-
-  if (order.status !== 'pending') {
-    const err = new Error('只能确认待确认的订单');
-    err.status = 400;
-    throw err;
-  }
+  assertOwner(home?.user_id, userId, '无权操作此订单');
+  assertIn(order.status, 'pending', '只能确认待确认的订单');
 
   const db = getDb();
   const transaction = db.transaction(() => {
     orderRepo.updateStatus(orderId, 'confirmed');
-
     const schedules = scheduleRepo.findByHomeIdAndDateRange(
       order.foster_home_id, order.start_date, order.end_date
     );
@@ -138,39 +91,21 @@ function confirmOrder(userId, orderId) {
       scheduleRepo.update(s.id, { is_available: false });
     }
   });
-
   transaction();
   return orderRepo.findById(orderId);
 }
 
 function cancelOrder(userId, orderId) {
-  const order = orderRepo.findById(orderId);
-  if (!order) {
-    const err = new Error('订单不存在');
-    err.status = 404;
-    throw err;
-  }
-
+  const order = assertExists(orderRepo.findById(orderId), '订单');
   const home = fosterHomeRepo.findById(order.foster_home_id);
   const isOwner = order.owner_id === userId;
   const isFoster = home && home.user_id === userId;
-
-  if (!isOwner && !isFoster) {
-    const err = new Error('无权取消此订单');
-    err.status = 403;
-    throw err;
-  }
-
-  if (!['pending', 'confirmed'].includes(order.status)) {
-    const err = new Error('只能取消待确认或已确认的订单');
-    err.status = 400;
-    throw err;
-  }
+  assert(isOwner || isFoster, '无权取消此订单', 403);
+  assertIn(order.status, ['pending', 'confirmed'], '只能取消待确认或已确认的订单');
 
   const db = getDb();
   const transaction = db.transaction(() => {
     orderRepo.updateStatus(orderId, 'cancelled');
-
     if (order.status === 'confirmed') {
       const schedules = scheduleRepo.findByHomeIdAndDateRange(
         order.foster_home_id, order.start_date, order.end_date
@@ -180,46 +115,23 @@ function cancelOrder(userId, orderId) {
       }
     }
   });
-
   transaction();
   return orderRepo.findById(orderId);
 }
 
 function activateOrder(orderId) {
-  const order = orderRepo.findById(orderId);
-  if (!order) {
-    const err = new Error('订单不存在');
-    err.status = 404;
-    throw err;
-  }
-
-  if (order.status !== 'confirmed') {
-    const err = new Error('只能激活已确认的订单');
-    err.status = 400;
-    throw err;
-  }
-
+  const order = assertExists(orderRepo.findById(orderId), '订单');
+  assertIn(order.status, 'confirmed', '只能激活已确认的订单');
   return orderRepo.updateStatus(orderId, 'active');
 }
 
 function completeOrder(orderId) {
-  const order = orderRepo.findById(orderId);
-  if (!order) {
-    const err = new Error('订单不存在');
-    err.status = 404;
-    throw err;
-  }
-
-  if (order.status !== 'active') {
-    const err = new Error('只能完成进行中的订单');
-    err.status = 400;
-    throw err;
-  }
+  const order = assertExists(orderRepo.findById(orderId), '订单');
+  assertIn(order.status, 'active', '只能完成进行中的订单');
 
   const db = getDb();
   const transaction = db.transaction(() => {
     orderRepo.updateStatus(orderId, 'completed');
-
     const schedules = scheduleRepo.findByHomeIdAndDateRange(
       order.foster_home_id, order.start_date, order.end_date
     );
@@ -227,7 +139,6 @@ function completeOrder(orderId) {
       scheduleRepo.update(s.id, { is_available: true });
     }
   });
-
   transaction();
   return orderRepo.findById(orderId);
 }

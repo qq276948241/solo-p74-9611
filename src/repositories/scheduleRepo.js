@@ -1,4 +1,5 @@
 const { getDb } = require('../config/database');
+const { buildWhereClause, appendOrderAndLimit, buildSetClause } = require('../utils/sql');
 
 function create(schedule) {
   const db = getDb();
@@ -26,43 +27,39 @@ function findById(id) {
 
 function findByHomeIdAndDateRange(fosterHomeId, startDate, endDate) {
   const db = getDb();
-  return db.prepare(
-    'SELECT * FROM schedules WHERE foster_home_id = ? AND date >= ? AND date <= ? ORDER BY date ASC'
-  ).all(fosterHomeId, startDate, endDate);
+  const { sql: whereSql, params } = buildWhereClause([
+    { clause: 'foster_home_id = ?', value: fosterHomeId },
+    { clause: 'date >= ?', value: startDate },
+    { clause: 'date <= ?', value: endDate }
+  ]);
+  return db.prepare(`SELECT * FROM schedules ${whereSql} ORDER BY date ASC`).all(...params);
 }
 
 function findByHomeId(fosterHomeId, page, pageSize) {
   const db = getDb();
-  const offset = (page - 1) * pageSize;
-  const list = db.prepare(
-    'SELECT * FROM schedules WHERE foster_home_id = ? ORDER BY date ASC LIMIT ? OFFSET ?'
-  ).all(fosterHomeId, pageSize, offset);
-  const { total } = db.prepare(
-    'SELECT COUNT(*) as total FROM schedules WHERE foster_home_id = ?'
-  ).get(fosterHomeId);
+  const { sql: whereSql, params } = buildWhereClause([
+    { clause: 'foster_home_id = ?', value: fosterHomeId }
+  ]);
+  const listSql = appendOrderAndLimit(
+    `SELECT * FROM schedules ${whereSql}`, params, 'date ASC', page, pageSize
+  );
+  const list = db.prepare(listSql.sql).all(...listSql.params);
+  const { total } = db.prepare(`SELECT COUNT(*) as total FROM schedules ${whereSql}`).get(...params);
   return { list, total };
 }
 
 function update(id, data) {
   const db = getDb();
-  const fields = [];
-  const values = { id };
+  const rawFields = {};
+  if (data.is_available !== undefined) rawFields.is_available = data.is_available ? 1 : 0;
+  if (data.daily_price !== undefined) rawFields.daily_price = data.daily_price;
+  if (data.note !== undefined) rawFields.note = data.note;
 
-  const allowedFields = ['is_available', 'daily_price', 'note'];
-  for (const field of allowedFields) {
-    if (data[field] !== undefined) {
-      let val = data[field];
-      if (field === 'is_available') val = val ? 1 : 0;
-      fields.push(`${field} = @${field}`);
-      values[field] = val;
-    }
-  }
-
-  if (fields.length === 0) return findById(id);
-
-  fields.push('updated_at = CURRENT_TIMESTAMP');
-  const sql = `UPDATE schedules SET ${fields.join(', ')} WHERE id = @id`;
-  db.prepare(sql).run(values);
+  if (Object.keys(rawFields).length === 0) return findById(id);
+  const values = Object.values(rawFields);
+  const setClauses = Object.keys(rawFields).map(f => `${f} = ?`);
+  values.push(id);
+  db.prepare(`UPDATE schedules SET ${setClauses.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(...values);
   return findById(id);
 }
 

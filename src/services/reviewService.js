@@ -1,39 +1,24 @@
 const reviewRepo = require('../repositories/reviewRepo');
 const orderRepo = require('../repositories/orderRepo');
 const fosterHomeRepo = require('../repositories/fosterHomeRepo');
+const { assertExists, assertOwner, assertIn, assertRange, AppError } = require('../utils/validator');
 
 function createReview(reviewerId, data) {
-  const order = orderRepo.findById(data.order_id);
-  if (!order) {
-    const err = new Error('订单不存在');
-    err.status = 404;
-    throw err;
-  }
-
-  if (order.status !== 'completed') {
-    const err = new Error('只有已完成的订单才能评价');
-    err.status = 400;
-    throw err;
-  }
+  const order = assertExists(orderRepo.findById(data.order_id), '订单');
+  assertIn(order.status, 'completed', '只有已完成的订单才能评价');
 
   const reviewType = data.review_type;
+  const rating = data.rating;
+  assertRange(rating, 1, 5, '评分');
+
   if (reviewType === 'to_foster_home') {
-    if (order.owner_id !== reviewerId) {
-      const err = new Error('只有主人可以评价寄养家庭');
-      err.status = 403;
-      throw err;
-    }
-    if (data.rating < 1 || data.rating > 5) {
-      const err = new Error('评分必须在 1 到 5 星之间');
-      err.status = 400;
-      throw err;
-    }
+    assertOwner(order.owner_id, reviewerId, '只有主人可以评价寄养家庭');
     const review = reviewRepo.create({
       order_id: data.order_id,
       reviewer_id: reviewerId,
       review_type: 'to_foster_home',
       target_id: order.foster_home_id,
-      rating: data.rating,
+      rating,
       content: data.content || ''
     });
     reviewRepo.updateFosterHomeRating(order.foster_home_id);
@@ -41,38 +26,23 @@ function createReview(reviewerId, data) {
   } else if (reviewType === 'to_pet') {
     const home = fosterHomeRepo.findById(order.foster_home_id);
     if (!home || home.user_id !== reviewerId) {
-      const err = new Error('只有寄养家庭可以评价宠物表现');
-      err.status = 403;
-      throw err;
-    }
-    if (data.rating < 1 || data.rating > 5) {
-      const err = new Error('评分必须在 1 到 5 星之间');
-      err.status = 400;
-      throw err;
+      throw AppError('只有寄养家庭可以评价宠物表现', 403);
     }
     return reviewRepo.create({
       order_id: data.order_id,
       reviewer_id: reviewerId,
       review_type: 'to_pet',
       target_id: order.pet_id,
-      rating: data.rating,
+      rating,
       content: data.content || ''
     });
   } else {
-    const err = new Error('无效的评价类型');
-    err.status = 400;
-    throw err;
+    throw AppError('无效的评价类型', 400);
   }
 }
 
 function getReviewById(id) {
-  const review = reviewRepo.findById(id);
-  if (!review) {
-    const err = new Error('评价不存在');
-    err.status = 404;
-    throw err;
-  }
-  return review;
+  return assertExists(reviewRepo.findById(id), '评价');
 }
 
 function getReviewsByOrder(orderId) {

@@ -1,4 +1,5 @@
 const { getDb } = require('../config/database');
+const { buildWhereClause, appendOrderAndLimit, buildSetClause } = require('../utils/sql');
 
 function create(feedback) {
   const db = getDb();
@@ -26,13 +27,14 @@ function findById(id) {
 
 function findByOrderId(orderId, page, pageSize) {
   const db = getDb();
-  const offset = (page - 1) * pageSize;
-  const list = db.prepare(
-    'SELECT * FROM daily_feedbacks WHERE order_id = ? ORDER BY date ASC LIMIT ? OFFSET ?'
-  ).all(orderId, pageSize, offset);
-  const { total } = db.prepare(
-    'SELECT COUNT(*) as total FROM daily_feedbacks WHERE order_id = ?'
-  ).get(orderId);
+  const { sql: whereSql, params } = buildWhereClause([
+    { clause: 'order_id = ?', value: orderId }
+  ]);
+  const listSql = appendOrderAndLimit(
+    `SELECT * FROM daily_feedbacks ${whereSql}`, params, 'date ASC', page, pageSize
+  );
+  const list = db.prepare(listSql.sql).all(...listSql.params);
+  const { total } = db.prepare(`SELECT COUNT(*) as total FROM daily_feedbacks ${whereSql}`).get(...params);
   return { list, total };
 }
 
@@ -44,22 +46,10 @@ function findByOrderIdAndDate(orderId, date) {
 
 function update(id, data) {
   const db = getDb();
-  const fields = [];
-  const values = { id };
-
-  const allowedFields = ['content', 'photo_urls'];
-  for (const field of allowedFields) {
-    if (data[field] !== undefined) {
-      fields.push(`${field} = @${field}`);
-      values[field] = data[field];
-    }
-  }
-
-  if (fields.length === 0) return findById(id);
-
-  fields.push('updated_at = CURRENT_TIMESTAMP');
-  const sql = `UPDATE daily_feedbacks SET ${fields.join(', ')} WHERE id = @id`;
-  db.prepare(sql).run(values);
+  const { sql: setSql, params } = buildSetClause(data, ['content', 'photo_urls']);
+  if (!setSql) return findById(id);
+  params.push(id);
+  db.prepare(`UPDATE daily_feedbacks ${setSql}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(...params);
   return findById(id);
 }
 

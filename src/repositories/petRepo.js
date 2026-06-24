@@ -1,4 +1,5 @@
 const { getDb } = require('../config/database');
+const { buildWhereClause, appendOrderAndLimit, buildSetClause } = require('../utils/sql');
 
 function create(pet) {
   const db = getDb();
@@ -17,31 +18,29 @@ function findById(id) {
 
 function findByOwnerId(ownerId, page, pageSize) {
   const db = getDb();
-  const offset = (page - 1) * pageSize;
-  const list = db.prepare('SELECT * FROM pets WHERE owner_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
-    .all(ownerId, pageSize, offset);
-  const { total } = db.prepare('SELECT COUNT(*) as total FROM pets WHERE owner_id = ?').get(ownerId);
+  const { sql: whereSql, params } = buildWhereClause([
+    { clause: 'owner_id = ?', value: ownerId }
+  ]);
+  const listSql = appendOrderAndLimit(
+    `SELECT * FROM pets ${whereSql}`, params, 'created_at DESC', page, pageSize
+  );
+  const list = db.prepare(listSql.sql).all(...listSql.params);
+  const { total } = db.prepare(`SELECT COUNT(*) as total FROM pets ${whereSql}`).get(...params);
   return { list, total };
 }
 
 function update(id, data) {
   const db = getDb();
-  const fields = [];
-  const values = { id };
-
   const allowedFields = ['name', 'breed', 'age', 'weight', 'gender', 'vaccination_records', 'personality_notes', 'photo_urls'];
-  for (const field of allowedFields) {
-    if (data[field] !== undefined) {
-      fields.push(`${field} = @${field}`);
-      values[field] = data[field];
-    }
+  const fields = {};
+  for (const f of allowedFields) {
+    if (data[f] !== undefined) fields[f] = data[f];
   }
-
-  if (fields.length === 0) return findById(id);
-
-  fields.push('updated_at = CURRENT_TIMESTAMP');
-  const sql = `UPDATE pets SET ${fields.join(', ')} WHERE id = @id`;
-  db.prepare(sql).run(values);
+  if (Object.keys(fields).length === 0) return findById(id);
+  const values = Object.values(fields);
+  const setClauses = Object.keys(fields).map(f => `${f} = ?`);
+  values.push(id);
+  db.prepare(`UPDATE pets SET ${setClauses.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(...values);
   return findById(id);
 }
 

@@ -1,4 +1,5 @@
 const { getDb } = require('../config/database');
+const { buildWhereClause, appendOrderAndLimit } = require('../utils/sql');
 
 function create(order) {
   const db = getDb();
@@ -24,47 +25,29 @@ function findByOrderNo(orderNo) {
 
 function findByOwnerId(ownerId, status, page, pageSize) {
   const db = getDb();
-  const offset = (page - 1) * pageSize;
-
-  let whereClause = 'WHERE owner_id = ?';
-  const params = [ownerId];
-
-  if (status) {
-    whereClause += ' AND status = ?';
-    params.push(status);
-  }
-
-  const list = db.prepare(
-    `SELECT * FROM orders ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`
-  ).all(...params, pageSize, offset);
-
-  const { total } = db.prepare(
-    `SELECT COUNT(*) as total FROM orders ${whereClause}`
-  ).get(...params);
-
+  const { sql: whereSql, params } = buildWhereClause([
+    { clause: 'owner_id = ?', value: ownerId },
+    { clause: 'status = ?', value: status }
+  ]);
+  const listSql = appendOrderAndLimit(
+    `SELECT * FROM orders ${whereSql}`, params, 'created_at DESC', page, pageSize
+  );
+  const list = db.prepare(listSql.sql).all(...listSql.params);
+  const { total } = db.prepare(`SELECT COUNT(*) as total FROM orders ${whereSql}`).get(...params);
   return { list, total };
 }
 
 function findByFosterHomeId(fosterHomeId, status, page, pageSize) {
   const db = getDb();
-  const offset = (page - 1) * pageSize;
-
-  let whereClause = 'WHERE foster_home_id = ?';
-  const params = [fosterHomeId];
-
-  if (status) {
-    whereClause += ' AND status = ?';
-    params.push(status);
-  }
-
-  const list = db.prepare(
-    `SELECT * FROM orders ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`
-  ).all(...params, pageSize, offset);
-
-  const { total } = db.prepare(
-    `SELECT COUNT(*) as total FROM orders ${whereClause}`
-  ).get(...params);
-
+  const { sql: whereSql, params } = buildWhereClause([
+    { clause: 'foster_home_id = ?', value: fosterHomeId },
+    { clause: 'status = ?', value: status }
+  ]);
+  const listSql = appendOrderAndLimit(
+    `SELECT * FROM orders ${whereSql}`, params, 'created_at DESC', page, pageSize
+  );
+  const list = db.prepare(listSql.sql).all(...listSql.params);
+  const { total } = db.prepare(`SELECT COUNT(*) as total FROM orders ${whereSql}`).get(...params);
   return { list, total };
 }
 

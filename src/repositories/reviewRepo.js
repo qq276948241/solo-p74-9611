@@ -1,4 +1,5 @@
 const { getDb } = require('../config/database');
+const { buildWhereClause } = require('../utils/sql');
 
 function create(review) {
   const db = getDb();
