@@ -57,7 +57,7 @@ function getAverageRatingByTargetId(targetId, reviewType) {
   `).get(targetId, reviewType);
 
   return {
-    avg_rating: result.avg_rating ? Math.round(result.avg_rating * 100) / 100 : 0,
+    avg_rating: result.review_count > 0 ? Math.round(result.avg_rating * 100) / 100 : null,
     review_count: result.review_count || 0
   };
 }

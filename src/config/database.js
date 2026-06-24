@@ -79,7 +79,7 @@ function initDatabase() {
       environment_photo_urls TEXT DEFAULT '[]',
       yard_photo_urls TEXT DEFAULT '[]',
       amenities TEXT DEFAULT '[]',
-      rating REAL DEFAULT 0,
+      rating REAL DEFAULT NULL,
       review_count INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -145,6 +145,12 @@ function initDatabase() {
       FOREIGN KEY (reviewer_id) REFERENCES users(id) ON DELETE CASCADE,
       UNIQUE(order_id, review_type, reviewer_id)
     );
+  `);
+
+  database.exec(`
+    UPDATE foster_homes
+    SET rating = NULL
+    WHERE rating = 0 AND review_count = 0
   `);
 
   console.log('Database initialized successfully');
