@@ -130,6 +130,21 @@ function initDatabase() {
       FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
       UNIQUE(order_id, date)
     );
+
+    CREATE TABLE IF NOT EXISTS reviews (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER NOT NULL,
+      reviewer_id INTEGER NOT NULL,
+      review_type TEXT NOT NULL CHECK(review_type IN ('to_foster_home', 'to_pet')),
+      target_id INTEGER NOT NULL,
+      rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+      content TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+      FOREIGN KEY (reviewer_id) REFERENCES users(id) ON DELETE CASCADE,
+      UNIQUE(order_id, review_type, reviewer_id)
+    );
   `);
 
   console.log('Database initialized successfully');

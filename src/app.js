@@ -8,6 +8,7 @@ const fosterHomeRoutes = require('./routes/fosterHomeRoutes');
 const scheduleRoutes = require('./routes/scheduleRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const dailyFeedbackRoutes = require('./routes/dailyFeedbackRoutes');
+const reviewRoutes = require('./routes/reviewRoutes');
 
 const app = express();
 
@@ -22,6 +23,7 @@ app.use('/api/foster-homes', fosterHomeRoutes);
 app.use('/api/schedules', scheduleRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/orders/:orderId/feedbacks', dailyFeedbackRoutes);
+app.use('/api/reviews', reviewRoutes);
 
 app.use(errorHandler);
 
